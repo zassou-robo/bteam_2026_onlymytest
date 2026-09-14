@@ -10,6 +10,8 @@
 dji::C620 c620(PB_12,PB_13);
 CAN arduino(PA_11,PA_12, (int)1e6);
 DigitalIn minipino_limit(D8,PullUp);
+DigitalIn arc_u(PC_10,PullUp);
+DigitalIn arc_d(PC_11,PullUp);
 
 constexpr float goal_angle = 35;
 constexpr int bl_max_angle = 8192;
@@ -50,7 +52,7 @@ int16_t angle_raw[8]      = {0};
 int16_t angle_actual[8]   = {0};
 int16_t dc_angle[4]       = {0};
 uint8_t servo[8]          = {0}; 
-uint8_t signal[8]         = {0};
+int16_t signal[4]         = {0};
 
 constexpr int drive_const = 5000;//オムニドライブパワー
 constexpr int turn_const = 3000;//オムニ旋回パワー
@@ -81,6 +83,7 @@ int  bc_mode = 0;
 bool reload = 1;
 int reload_time = 0;
 bool mi_servo_mode = 0;
+bool roller_mode = 0;
 int main(){
     c620.read_data();
         for(int i = 0; i < 4; i++){
@@ -117,17 +120,33 @@ int main(){
             
             omuni.omuni_calc(ps5.lstick_x,ps5.lstick_y,ps5.rstick_x,omuni_rpm_goal);
             if(robot_mode){
+                static bool pre_cross = ps5.cross;
+                if (ps5.cross && !pre_cross)
+                {
+                    roller_mode = !roller_mode;
+                }
+                pre_cross = ps5.cross;
                 if(ps5.r1){
                     arc_out = -arc_power;
+                    if(arc_u == 0){
+                        arc_out += arc_power;
+                    }
                 }else if(ps5.r2 > 40){
-                    arc_out = arc_power / 2;
+                    arc_out = arc_power;
+                    if(arc_d == 0){
+                        arc_out -= arc_power;
+                    }
                 }else{
                     arc_out = 0;
                 }
-                if(ps5.cross){
-                    signal[0] = 1;
+                if(roller_mode){
+                    for(int i = 0;i < 4;i ++){
+                        signal[i] = 1;
+                    }
                 }else{
-                    signal[0] = 0;
+                    for(int i = 0;i < 4;i ++){
+                        signal[i] = 0;
+                    }
                 }
                 if(ps5.square){
                     pochi_out = pochi_power;
@@ -228,14 +247,13 @@ int main(){
                 pre_angle[i] = angle_raw[i];
             }
             meca_1[0] = mi_out;
-            meca_1[1] = bc_out;
-            meca_1[2] = bc_ud_out;
-            meca_1[3] = rc_out;
-            meca_2[0] = mi_ud_out;
-            meca_2[1] = pochi_out;
-            meca_2[2] = -arc_out;
-            meca_2[3] = arc_out;
+            meca_1[1] = mi_ud_out;
+            meca_1[2] = 0;
+            meca_1[3] = 0;
             meca_rpm_goal[0] = minipino_out;
+            meca_rpm_goal[1] = bc_out;
+            meca_rpm_goal[2] = -arc_out;
+            meca_rpm_goal[3] = arc_out;
             for(int i = 0;i < 8;i++){
                 servo[i] = mi_servo_out;
             }
@@ -243,22 +261,21 @@ int main(){
             if(now - pre > 10ms){
                 // printf(">neo_angle:\n",angle_actual[4]);
                 // printf(">neo_rpm:\n",rpm_actual[4]);
-                printf("%d%d%d%d\n",servo[0],servo[1],servo[2],servo[3]);
+                // printf("%d%d%d%d\n",servo[0],servo[1],servo[2],servo[3]);
+                printf("%d,%d\n",(int)arc_u,(int)arc_d);
                 for(int i = 0; i < 4; i++){
                     c620.set_output(pids[i].calc(omuni_rpm_goal[i], rpm_actual[i], 0.01f), i + 1);
+                    c620.set_output(pids[i+4].calc(meca_rpm_goal[i],rpm_actual[i+4],0.01f),i + 5);
                 }
-                c620.set_output(pids[4].calc(meca_rpm_goal[0],rpm_actual[4],0.01f),5);
                 // if(meca_rpm_goal[1] == 0){
                 //     c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,meca_rpm_goal[1] - angle_actual[5],rpm_actual[5])),6);
                 // }else if(meca_rpm_goal[1] != 0){
                 //     c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,meca_rpm_goal[1] - angle_actual[5],rpm_actual[5])),6);
                 // }
                 CANMessage msg1(canid_1,(const uint8_t *)meca_1,8);
-                CANMessage msg2(canid_2,(const uint8_t *)meca_2,8);
                 CANMessage sub_signal(roller_canid,(const uint8_t *)signal,8);
                 CANMessage servo_msg(servo_id,(const uint8_t *)servo,8);
                 arduino.write(msg1);
-                arduino.write(msg2);
                 arduino.write(sub_signal);
                 arduino.write(servo_msg);
                 c620.write();
