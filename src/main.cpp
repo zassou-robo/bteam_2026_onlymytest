@@ -22,14 +22,14 @@ PidGain gain_c610{1.0, 0.1, 0.0};
 PidGain gain_c620{2.0, 0.5, 0.0};
 constexpr int NUM_MOTORS = 8;
 std::array<Pid, NUM_MOTORS> pids = {{
-    Pid({gain_c610, -10000, 10000}),
-    Pid({gain_c610, -10000, 10000}),
-    Pid({gain_c610, -10000, 10000}),
-    Pid({gain_c610, -10000, 10000}),
     Pid({gain_c620, -10000, 10000}),
     Pid({gain_c620, -10000, 10000}),
     Pid({gain_c620, -10000, 10000}),
-    Pid({gain_c620, -10000, 10000})
+    Pid({gain_c620, -10000, 10000}),
+    Pid({gain_c610, -10000, 10000}),
+    Pid({gain_c610, -10000, 10000}),
+    Pid({gain_c610, -10000, 10000}),
+    Pid({gain_c610, -10000, 10000})
 }};
 
 BufferedSerial pc(USBTX,USBRX,115200);
@@ -43,13 +43,13 @@ CANMessage msg;
 Ps5 ps5;
 int16_t meca_1[4]         = {0};
 int16_t meca_2[4]         = {0};
-int16_t omuni_rpm_goal[4] = {0};
-int16_t meca_rpm_goal[4]  = {0};
+int16_t bl_rpm_goal[8] = {0};
 int16_t rpm_actual[8]     = {0};
 int16_t pre_angle[8]      = {0};
 int16_t angle_goal[8]     = {0};
 int16_t angle_raw[8]      = {0};
 int16_t angle_actual[8]   = {0};
+int16_t fix_angle[2]      = {0};
 int16_t dc_angle[4]       = {0};
 uint8_t servo[8]          = {0}; 
 int16_t signal[4]         = {0};
@@ -84,17 +84,19 @@ bool reload = 1;
 int reload_time = 0;
 bool mi_servo_mode = 0;
 bool roller_mode = 0;
+bool arc_fix = 0;
+bool arc_desable = 0;
 int main(){
     c620.read_data();
-        for(int i = 0; i < 4; i++){
-            omuni_rpm_goal[i] = 0;
+        for(int i = 0; i < 8; i++){
+            bl_rpm_goal[i] = 0;
         }
         // const int defo_angle = c620.get_angle(6);
     while(1){
         auto now = HighResClock::now();
         static auto pre = now;
         c620.read_data();
-        if(arduino.read(msg) && msg.id == sensor_id){
+        // if(arduino.read(msg) && msg.id == sensor_id){
             // for(int i = 0;i < 4;i ++){
             //     dc_angle[i] = msg.data[2*i + 1] << 8 | msg.data[2*i];
             //     printf("%d  ",dc_angle[i]);
@@ -109,7 +111,7 @@ int main(){
             // }
             // printf("\n");
             // printf("\n");
-        }
+        // }
         if(ps5.read(arduino)){
             static bool pre_option = ps5.option;
             if (ps5.option && !pre_option)
@@ -118,7 +120,7 @@ int main(){
             }
             pre_option = ps5.option;
             
-            omuni.omuni_calc(ps5.lstick_x,ps5.lstick_y,ps5.rstick_x,omuni_rpm_goal);
+            omuni.omuni_calc(ps5.lstick_x,ps5.lstick_y,ps5.rstick_x,bl_rpm_goal);
             if(robot_mode){
                 static bool pre_cross = ps5.cross;
                 if (ps5.cross && !pre_cross)
@@ -131,11 +133,21 @@ int main(){
                     if(arc_u == 0){
                         arc_out += arc_power;
                     }
+                    arc_fix = 0;
+                    arc_desable = 0;
                 }else if(ps5.r2 > 40){
                     arc_out = arc_power;
                     if(arc_d == 0){
                         arc_out -= arc_power;
                     }
+                    arc_fix = 0;
+                    arc_desable = 0;
+                }else if(arc_desable == 0){
+                    arc_out = 0;
+                    arc_fix = 1;
+                    arc_desable = 1;
+                    fix_angle[0] = c620.get_angle(7);
+                    fix_angle[1] = c620.get_angle(8);
                 }else{
                     arc_out = 0;
                 }
@@ -250,27 +262,43 @@ int main(){
             meca_1[1] = mi_ud_out;
             meca_1[2] = 0;
             meca_1[3] = 0;
-            meca_rpm_goal[0] = minipino_out;
-            meca_rpm_goal[1] = bc_out;
-            meca_rpm_goal[2] = -arc_out;
-            meca_rpm_goal[3] = arc_out;
+            bl_rpm_goal[4] = minipino_out;
+            bl_rpm_goal[5] = bc_out;
+            if(arc_fix == 0){
+                bl_rpm_goal[6] = -arc_out;
+                bl_rpm_goal[7] = arc_out;
+            }else{
+                bl_rpm_goal[6] = fix_angle[0];
+                bl_rpm_goal[7] = fix_angle[1];
+            }
             for(int i = 0;i < 8;i++){
                 servo[i] = mi_servo_out;
             }
-            // meca_rpm_goal[1] = mi_servo_out;
+            // bl_rpm_goal[1] = mi_servo_out;
             if(now - pre > 10ms){
+                printf("%d   %d\n",bl_rpm_goal[6],bl_rpm_goal[7]);
                 // printf(">neo_angle:\n",angle_actual[4]);
                 // printf(">neo_rpm:\n",rpm_actual[4]);
                 // printf("%d%d%d%d\n",servo[0],servo[1],servo[2],servo[3]);
-                printf("%d,%d\n",(int)arc_u,(int)arc_d);
-                for(int i = 0; i < 4; i++){
-                    c620.set_output(pids[i].calc(omuni_rpm_goal[i], rpm_actual[i], 0.01f), i + 1);
-                    c620.set_output(pids[i+4].calc(meca_rpm_goal[i],rpm_actual[i+4],0.01f),i + 5);
+                // printf("%d,%d\n",(int)arc_u,(int)arc_d);
+                for(int i = 0; i < 6; i++){
+                    c620.set_output(pids[i].calc(bl_rpm_goal[i], rpm_actual[i], 0.01f), i + 1);
+                    // c620.set_output(pids[i+4].calc(bl_rpm_goal[i],rpm_actual[i+4],0.01f),i + 5);
                 }
-                // if(meca_rpm_goal[1] == 0){
-                //     c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,meca_rpm_goal[1] - angle_actual[5],rpm_actual[5])),6);
-                // }else if(meca_rpm_goal[1] != 0){
-                //     c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,meca_rpm_goal[1] - angle_actual[5],rpm_actual[5])),6);
+                if(arc_fix == 0){
+                    for(int i = 0;i < 2;i ++){
+                        c620.set_output(pids[i+6].calc(bl_rpm_goal[i+6],rpm_actual[i+6],0.01f),i + 7);
+                    }
+                }else{
+                    // for(int i = 0;i < 2;i ++){
+                        c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,bl_rpm_goal[6] - angle_actual[6],rpm_actual[6])),7);
+                        c620.set_output(static_cast<int16_t>(-1 * pos_pid_calc(0.04,0.69,bl_rpm_goal[7] - angle_actual[7],rpm_actual[7])),8);
+                    // }
+                }
+                // if(bl_rpm_goal[1] == 0){
+                //     c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,bl_rpm_goal[1] - angle_actual[5],rpm_actual[5])),6);
+                // }else if(bl_rpm_goal[1] != 0){
+                //     c620.set_output(static_cast<int16_t>(pos_pid_calc(0.04,0.69,bl_rpm_goal[1] - angle_actual[5],rpm_actual[5])),6);
                 // }
                 CANMessage msg1(canid_1,(const uint8_t *)meca_1,8);
                 CANMessage sub_signal(roller_canid,(const uint8_t *)signal,8);

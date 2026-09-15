@@ -11,7 +11,7 @@ struct omuni_param{
 class Omuni{
     public:
     Omuni(const omuni_param const_output_): const_output_(const_output_){};
-    void omuni_calc(int8_t lstick_x,int8_t lstick_y,int8_t rstick_x,int16_t goal[4]){
+    void omuni_calc(int8_t lstick_x,int8_t lstick_y,int8_t rstick_x,int16_t goal[8]){
         int16_t drive_goal[4] = {0};
         int16_t turn_goal[4] = {0};
             if(abs(lstick_x) > 20 ||abs(lstick_y) > 20){
