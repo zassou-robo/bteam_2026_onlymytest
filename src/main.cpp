@@ -9,9 +9,10 @@
 // CAN arduino(PB_12, PB_13, (int)1e6);
 dji::C620 c620(PB_12,PB_13);
 CAN arduino(PA_11,PA_12, (int)1e6);
-DigitalIn minipino_limit(D8,PullUp);
-DigitalIn arc_u(PC_10,PullUp);
-DigitalIn arc_d(PC_11,PullUp);
+DigitalIn minipino_limit(PC_0,PullUp);
+DigitalIn arc_u(PC_1,PullUp);
+DigitalIn arc_d(PC_3,PullUp);
+DigitalIn mi_limit(PC_2,PullUp);
 
 constexpr float goal_angle = 35;
 constexpr int bl_max_angle = 8192;
@@ -33,7 +34,7 @@ std::array<Pid, NUM_MOTORS> pids = {{
 }};
 
 BufferedSerial pc(USBTX,USBRX,115200);
-constexpr int canid_1 = 2;
+constexpr int canid_1 = 35;
 constexpr int canid_2 = 4;
 constexpr int sensor_id = 10;
 constexpr int servo_id = 140;
@@ -43,7 +44,7 @@ CANMessage msg;
 Ps5 ps5;
 int16_t meca_1[4]         = {0};
 int16_t meca_2[4]         = {0};
-int16_t bl_rpm_goal[8] = {0};
+int16_t bl_rpm_goal[8]    = {0};
 int16_t rpm_actual[8]     = {0};
 int16_t pre_angle[8]      = {0};
 int16_t angle_goal[8]     = {0};
@@ -65,7 +66,7 @@ constexpr int bc_power = 15000;//バッドカンパニーの押し出しパワ�
 constexpr int bc_ud_power = 5000;//バッドカンパニーの上下パワー
 constexpr int arc_power = 5000;//有澤還れのパワー
 constexpr int pochi_power = 16000;//ぽち(パチンコ)
-constexpr int mi_servo_angle = 128;
+constexpr int mi_servo_angle = 64;
 
 int mi_out = 0;//      555   1個
 uint8_t mi_servo_out = 0;//M2006 1
@@ -182,25 +183,25 @@ int main(){
                 }
                 pre_down = ps5.down;
                 if(ps5.r1){
-                    bc_ud_out = -bc_ud_power;
+                    bc_out = -bc_ud_power;
                 }else if(ps5.r2 > 40){
-                    bc_ud_out = bc_ud_power;
-                }else{
-                    bc_ud_out = 0;
-                }
-                if(bc_mode == 1){
-                    bc_out = 0;
-                    rc_out = bc_power;
-                }else if(bc_mode == 2){
-                    bc_out = bc_power;
-                    rc_out = bc_power;
-                }else if(bc_mode == 3){
-                    bc_out = -bc_power;
-                    rc_out = 0;
+                    bc_out = bc_ud_power;
                 }else{
                     bc_out = 0;
-                    rc_out = 0;
                 }
+                // if(bc_mode == 1){
+                //     bc_out = 0;
+                //     rc_out = bc_power;
+                // }else if(bc_mode == 2){
+                //     bc_out = bc_power;
+                //     rc_out = bc_power;
+                // }else if(bc_mode == 3){
+                //     bc_out = -bc_power;
+                //     rc_out = 0;
+                // }else{
+                //     bc_out = 0;
+                //     rc_out = 0;
+                // }
                 if(ps5.circle && !reload){
                     minipino_out = -minipino_power_1;
                     if(minipino_limit == 0){
@@ -223,7 +224,7 @@ int main(){
                     if(reload){
                         minipino_out = 2500;
                         reload_time ++ ;
-                        if(reload_time > 50){
+                        if(reload_time > 150){
                             reload = 0;
                             reload_time = 0;
                             minipino_out = 0;
@@ -246,8 +247,14 @@ int main(){
                 }
                 if(ps5.left){
                     mi_out = mi_power;
+                    if(mi_limit == 0){
+                        mi_out -= mi_power;
+                    }
                 }else if(ps5.right){
                     mi_out = -mi_power;
+                    // if(mi_limit == 0){
+                    //     mi_out += mi_power;
+                    // }
                 }else{
                     mi_out = 0;
                 }
@@ -276,7 +283,9 @@ int main(){
             }
             // bl_rpm_goal[1] = mi_servo_out;
             if(now - pre > 10ms){
-                printf("%d   %d\n",bl_rpm_goal[6],bl_rpm_goal[7]);
+                // printf("%d   %d   %d   %d\n",rpm_actual[0],rpm_actual[1],rpm_actual[2],rpm_actual[3]);
+                printf("%d\n",rpm_actual[5]);
+                // printf("%d\n",(int)minipino_limit);
                 // printf(">neo_angle:\n",angle_actual[4]);
                 // printf(">neo_rpm:\n",rpm_actual[4]);
                 // printf("%d%d%d%d\n",servo[0],servo[1],servo[2],servo[3]);
