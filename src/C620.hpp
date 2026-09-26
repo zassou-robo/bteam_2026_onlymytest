@@ -8,10 +8,10 @@ namespace dji{
 
 struct C620Data
 {
-    uint16_t angle;
-    int16_t rpm;
-    int16_t ampere;
-    uint8_t temp;
+    uint16_t angle = 0;
+    int16_t rpm = 0;
+    int16_t ampere = 0;
+    uint8_t temp = 0;
 
     void parse(const uint8_t data[8])
     {
@@ -40,7 +40,7 @@ public:
     void read_data()
     {
         CANMessage msg;
-        if (can.read(msg); 0x201 <= msg.id && msg.id <= 0x208)
+        if (can.read(msg) && 0x201 <= msg.id && msg.id <= 0x208)
         {
             data_[msg.id - 0x201].parse(msg.data);
         }
